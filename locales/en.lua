@@ -32,6 +32,9 @@ local Translations = {
         xpGain = 'You gained %{xp} reputation in %{type}',
         invalidAmount = 'Invalid amount specified',
         invalidInput = 'Invalid input provided',
+        crafting_in_progress = 'Crafting in progress...',
+        crafting_finished = 'Finished crafting!',
+        crafting_cancelled = 'Crafting cancelled!'
     }
 }
 

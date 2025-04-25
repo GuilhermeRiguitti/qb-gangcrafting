@@ -151,157 +151,22 @@ RegisterNetEvent('qb-gangcrafting:server:CraftItem', function(item)
     end
 end)
 
--- Add crafting items to QB-Core shared items
-Citizen.CreateThread(function()
-    Citizen.Wait(1000) -- Wait for QB-Core to be fully loaded
+-- Callback to sync crafting animations between players
+RegisterNetEvent('qb-gangcrafting:server:SyncCraftingAnimation', function(coords)
+    local src = source
+    local ped = GetPlayerPed(src)
+    local pedCoords = GetEntityCoords(ped)
+    local dist = #(coords - vector3(pedCoords.x, pedCoords.y, pedCoords.z))
     
-    -- Define crafting materials and parts if they don't exist yet
-    local newItems = {
-        -- Weapon parts
-        ['pistol_part_1'] = {['name'] = 'pistol_part_1', ['label'] = 'Pistol Frame', ['weight'] = 1000, ['type'] = 'item', ['image'] = 'pistol_part.png', ['unique'] = false, ['useable'] = false, ['shouldClose'] = false, ['combinable'] = nil, ['description'] = 'A frame for a pistol'},
-        ['pistol_part_2'] = {['name'] = 'pistol_part_2', ['label'] = 'Pistol Slide', ['weight'] = 700, ['type'] = 'item', ['image'] = 'pistol_part.png', ['unique'] = false, ['useable'] = false, ['shouldClose'] = false, ['combinable'] = nil, ['description'] = 'A slide for a pistol'},
-        ['pistol_part_3'] = {['name'] = 'pistol_part_3', ['label'] = 'Pistol Grip', ['weight'] = 500, ['type'] = 'item', ['image'] = 'pistol_part.png', ['unique'] = false, ['useable'] = false, ['shouldClose'] = false, ['combinable'] = nil, ['description'] = 'A grip for a pistol'},
-        ['pistol_part_4'] = {['name'] = 'pistol_part_4', ['label'] = 'Pistol Trigger', ['weight'] = 300, ['type'] = 'item', ['image'] = 'pistol_part.png', ['unique'] = false, ['useable'] = false, ['shouldClose'] = false, ['combinable'] = nil, ['description'] = 'A trigger for a pistol'},
-        
-        ['smg_part_1'] = {['name'] = 'smg_part_1', ['label'] = 'SMG Receiver', ['weight'] = 1500, ['type'] = 'item', ['image'] = 'smg_part.png', ['unique'] = false, ['useable'] = false, ['shouldClose'] = false, ['combinable'] = nil, ['description'] = 'A receiver for an SMG'},
-        ['smg_part_2'] = {['name'] = 'smg_part_2', ['label'] = 'SMG Barrel', ['weight'] = 1000, ['type'] = 'item', ['image'] = 'smg_part.png', ['unique'] = false, ['useable'] = false, ['shouldClose'] = false, ['combinable'] = nil, ['description'] = 'A barrel for an SMG'},
-        ['smg_part_3'] = {['name'] = 'smg_part_3', ['label'] = 'SMG Stock', ['weight'] = 1200, ['type'] = 'item', ['image'] = 'smg_part.png', ['unique'] = false, ['useable'] = false, ['shouldClose'] = false, ['combinable'] = nil, ['description'] = 'A stock for an SMG'},
-        ['smg_part_4'] = {['name'] = 'smg_part_4', ['label'] = 'SMG Magazine', ['weight'] = 800, ['type'] = 'item', ['image'] = 'smg_part.png', ['unique'] = false, ['useable'] = false, ['shouldClose'] = false, ['combinable'] = nil, ['description'] = 'A magazine for an SMG'},
-    }
-    
-    -- Add items to QBCore.Shared.Items
-    print("^3[qb-gangcrafting] ^7Adding crafting items to shared items")
-    for itemName, itemData in pairs(newItems) do
-        -- Only add if the item doesn't already exist
-        if not QBCore.Shared.Items[itemName] then
-            QBCore.Functions.AddItem(itemName, itemData)
-            print("^3[qb-gangcrafting] ^2Added crafting item: ^7" .. itemName)
-        else
-            print("^3[qb-gangcrafting] ^7Item already exists: " .. itemName)
-        end
+    -- Security check to prevent abuse - only sync if player is near the claimed position
+    if dist > 10.0 then
+        DebugPrint("Player attempted to sync animation from too far away")
+        return
     end
     
-    -- Verify that all required crafting items exist
-    local missingItems = {}
-    
-    -- Check all gang weapons items
-    for gang, weapons in pairs(Config.Weapons) do
-        for _, weapon in ipairs(weapons) do
-            if not QBCore.Shared.Items[weapon.item] then
-                table.insert(missingItems, weapon.item)
-            end
-            
-            -- Also check required items
-            if weapon.requiredItems then
-                for _, reqItem in ipairs(weapon.requiredItems) do
-                    if not QBCore.Shared.Items[reqItem.item] then
-                        table.insert(missingItems, reqItem.item)
-                    end
-                end
-            end
-        end
-    end
-    
-    if #missingItems > 0 then
-        print("^3[qb-gangcrafting] ^1WARNING: The following items are missing from QBCore.Shared.Items:^7")
-        for _, item in ipairs(missingItems) do
-            print("^1- " .. item .. "^7")
-        end
-        print("^3[qb-gangcrafting] ^1Crafting script may not function correctly!^7")
-    else
-        print("^3[qb-gangcrafting] ^2All required items exist in QBCore.Shared.Items^7")
-    end
+    -- Broadcast animation to all nearby players (except source)
+    TriggerClientEvent('qb-gangcrafting:client:SyncCraftingAnimation', -1, coords, src)
 end)
-
--- Command to check if gang crafting items exist
-QBCore.Commands.Add('checkgangitems', 'Check if gang crafting items exist', {}, false, function(source, args)
-    local src = source
-    local Player = QBCore.Functions.GetPlayer(src)
-    
-    if Player.PlayerData.job.name == "admin" or Player.PlayerData.citizenid == "admin" then
-        -- Loop through all gang weapons in the config
-        for gang, weapons in pairs(Config.Weapons) do
-            for _, item in ipairs(weapons) do
-                local exists = QBCore.Shared.Items[item.item] ~= nil
-                local message = "Item '" .. item.item .. "' for gang '" .. gang .. "': "
-                if exists then
-                    message = message .. "^2EXISTS^7"
-                else
-                    message = message .. "^1MISSING^7"
-                end
-                TriggerClientEvent('chat:addMessage', src, {
-                    template = '<div style="padding: 0.5vw; margin: 0.5vw; background-color: rgba(33, 33, 33, 0.8); border-radius: 3px;">{0}</div>',
-                    args = {message}
-                })
-            end
-        end
-        
-        -- Also check required materials
-        TriggerClientEvent('chat:addMessage', src, {
-            template = '<div style="padding: 0.5vw; margin: 0.5vw; background-color: rgba(33, 33, 33, 0.8); border-radius: 3px;"><b>Checking crafting materials:</b></div>',
-            args = {}
-        })
-        
-        -- Create a table of all unique materials needed
-        local materials = {}
-        for gang, weapons in pairs(Config.Weapons) do
-            for _, item in ipairs(weapons) do
-                if item.requiredItems then
-                    for _, reqItem in ipairs(item.requiredItems) do
-                        materials[reqItem.item] = true
-                    end
-                end
-            end
-        end
-        
-        for material, _ in pairs(materials) do
-            local exists = QBCore.Shared.Items[material] ~= nil
-            local message = "Material '" .. material .. "': "
-            if exists then
-                message = message .. "^2EXISTS^7"
-            else
-                message = message .. "^1MISSING^7"
-            end
-            TriggerClientEvent('chat:addMessage', src, {
-                template = '<div style="padding: 0.5vw; margin: 0.5vw; background-color: rgba(33, 33, 33, 0.8); border-radius: 3px;">{0}</div>',
-                args = {message}
-            })
-        end
-    else
-        TriggerClientEvent('QBCore:Notify', src, "You don't have permission to use this command", "error")
-    end
-end, "admin")
-
--- Command to check gang database tables
-QBCore.Commands.Add('checkgangdb', 'Check gang database tables', {}, false, function(source, args)
-    local src = source
-    local Player = QBCore.Functions.GetPlayer(src)
-    
-    if Player.PlayerData.job.name == "admin" or Player.PlayerData.citizenid == "admin" then
-        MySQL.Async.fetchAll('SHOW TABLES LIKE "gang_%"', {}, function(result)
-            if result and #result > 0 then
-                TriggerClientEvent('chat:addMessage', src, {
-                    template = '<div style="padding: 0.5vw; margin: 0.5vw; background-color: rgba(33, 33, 33, 0.8); border-radius: 3px;"><b>Gang Database Tables:</b></div>',
-                    args = {}
-                })
-                
-                for i = 1, #result do
-                    TriggerClientEvent('chat:addMessage', src, {
-                        template = '<div style="padding: 0.5vw; margin: 0.5vw; background-color: rgba(33, 33, 33, 0.8); border-radius: 3px;">{0}</div>',
-                        args = {result[i]['Tables_in_qbcoreframework_3f0a97 (gang_%)'] or "Unknown table"}
-                    })
-                end
-            else
-                TriggerClientEvent('chat:addMessage', src, {
-                    template = '<div style="padding: 0.5vw; margin: 0.5vw; background-color: rgba(33, 33, 33, 0.8); border-radius: 3px;"><b>No gang tables found in database</b></div>',
-                    args = {}
-                })
-            end
-        end)
-    else
-        TriggerClientEvent('QBCore:Notify', src, "You don't have permission to use this command", "error")
-    end
-end, "admin")
 
 -- Command to check player's gang information
 RegisterCommand('myganginfo', function(source)

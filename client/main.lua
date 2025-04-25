@@ -237,19 +237,109 @@ RegisterNetEvent('qb-gangcrafting:client:CraftItem', function(data)
     -- Check if player has required items
     QBCore.Functions.TriggerCallback('QBCore:HasItem', function(hasItem)
         if hasItem then
-            -- Animation and crafting logic
-            TriggerEvent('animations:client:EmoteCommandStart', {"mechanic"})
-            QBCore.Functions.Progressbar("craft_item", "Crafting " .. itemName, 5000, false, true, {
+            -- Enhanced crafting animation with prop and effects
+            local ped = PlayerPedId()
+            local animDict = "anim@amb@clubhouse@tutorial@bkr_tut_ig3@"
+            local anim = "machinic_loop_mechandplayer"
+            local craftingProp = nil
+            local craftingSound = nil
+            local particleEffect = nil
+            
+            -- Load animation dictionary
+            RequestAnimDict(animDict)
+            while not HasAnimDictLoaded(animDict) do
+                Wait(10)
+            end
+            
+            -- Animation and crafting logic with enhanced effects
+            if item.type == "weapon" then
+                -- Create a weapon crafting prop
+                craftingProp = CreateObject(GetHashKey("prop_tool_box_04"), 0, 0, 0, true, true, true)
+                AttachEntityToEntity(craftingProp, ped, GetPedBoneIndex(ped, 28422), 0.0, -0.18, 0.0, 0.0, 0.0, 0.0, true, true, false, true, 1, true)
+                
+                -- Start the crafting sound (gun assembly)
+                craftingSound = GetSoundId()
+                PlaySoundFromEntity(craftingSound, "Drill", ped, "DLC_HEIST_FLEECA_SOUNDSET", false, 0)
+            else
+                -- Different prop for non-weapon items
+                craftingProp = CreateObject(GetHashKey("prop_tool_box_02"), 0, 0, 0, true, true, true)
+                AttachEntityToEntity(craftingProp, ped, GetPedBoneIndex(ped, 28422), 0.0, -0.18, 0.0, 0.0, 0.0, 0.0, true, true, false, true, 1, true)
+                
+                -- General crafting sound
+                craftingSound = GetSoundId()
+                PlaySoundFromEntity(craftingSound, "Drill", ped, "DLC_HEIST_FLEECA_SOUNDSET", false, 0)
+            end
+            
+            -- Add particle effects for visual enhancement
+            RequestNamedPtfxAsset("core")
+            while not HasNamedPtfxAssetLoaded("core") do
+                Wait(10)
+            end
+            UseParticleFxAssetNextCall("core")
+            SetPtfxAssetNextCall("core")
+            
+            -- Sparks particle effect
+            particleEffect = StartParticleFxLoopedOnEntity("ent_amb_welding", ped, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5, false, false, false)
+            
+            -- Start animation
+            TaskPlayAnim(ped, animDict, anim, 8.0, -8.0, -1, 1, 0, false, false, false)
+            
+            QBCore.Functions.Progressbar("craft_item", "Fabricando " .. itemName, 5000, false, true, {
                 disableMovement = true,
                 disableCarMovement = true,
                 disableMouse = false,
                 disableCombat = true,
             }, {}, {}, {}, function() -- Done
-                TriggerEvent('animations:client:EmoteCommandStart', {"c"})
+                -- Stop the animation and effects
+                StopAnimTask(ped, animDict, anim, 1.0)
+                DeleteObject(craftingProp)
+                
+                if craftingSound then
+                    StopSound(craftingSound)
+                    ReleaseSoundId(craftingSound)
+                end
+                
+                if particleEffect then
+                    StopParticleFxLooped(particleEffect, 0)
+                end
+                
+                -- Success notification and explosion effect for completion
+                if item.type == "weapon" then
+                    -- Small smoke puff for weapon completion
+                    UseParticleFxAssetNextCall("core")
+                    StartParticleFxNonLoopedAtCoord("ent_sht_steam", GetEntityCoords(ped), 0.0, 0.0, 0.0, 0.5, false, false, false)
+                    PlaySoundFrontend(-1, "PICK_UP", "HUD_FRONTEND_DEFAULT_SOUNDSET", 1)
+                end
+                
                 TriggerServerEvent('qb-gangcrafting:server:CraftItem', item)
-                QBCore.Functions.Notify("Finished crafting", "success")
+                QBCore.Functions.Notify("Finished crafting " .. itemName, "success")
+                
+                -- Add a cool 'finishing touch' animation
+                RequestAnimDict("anim@mp_player_intuppergolf")
+                while not HasAnimDictLoaded("anim@mp_player_intuppergolf") do
+                    Wait(10)
+                end
+                TaskPlayAnim(ped, "anim@mp_player_intuppergolf", "idle_a", 8.0, -8.0, 2000, 0, false, false, false)
+                Wait(2000)
+                ClearPedTasks(ped)
+                
             end, function() -- Cancel
-                TriggerEvent('animations:client:EmoteCommandStart', {"c"})
+                -- Clean up if canceled
+                StopAnimTask(ped, animDict, anim, 1.0)
+                
+                if craftingProp then
+                    DeleteObject(craftingProp)
+                end
+                
+                if craftingSound then
+                    StopSound(craftingSound)
+                    ReleaseSoundId(craftingSound)
+                end
+                
+                if particleEffect then
+                    StopParticleFxLooped(particleEffect, 0)
+                end
+                
                 QBCore.Functions.Notify("Cancelled crafting", "error")
             end)
         else
