@@ -2,6 +2,7 @@ local QBCore = exports['qb-core']:GetCoreObject()
 local PlayerData = {}
 local PlayerGang = {}
 local craftingZones = {}
+local craftingObjects = {}
 
 -- Debug function for client side
 local function DebugPrint(message)
@@ -10,11 +11,93 @@ local function DebugPrint(message)
     end
 end
 
+-- Função para criar mesa de crafting
+function CreateCraftingTable(gang, location)
+    if not Config.CraftingProps[gang] then return end
+    
+    local propConfig = Config.CraftingProps[gang]
+    local propHash = GetHashKey(propConfig.model)
+    
+    -- Carregar o modelo
+    RequestModel(propHash)
+    while not HasModelLoaded(propHash) do
+        Wait(10)
+    end
+    
+    -- Criar o objeto principal (mesa)
+    local coords = vector3(
+        location.coords.x + propConfig.offset.x,
+        location.coords.y + propConfig.offset.y,
+        location.coords.z + propConfig.offset.z
+    )
+    
+    local mainObject = CreateObject(propHash, coords.x, coords.y, coords.z, false, false, false)
+    SetEntityRotation(mainObject, propConfig.rotation.x, propConfig.rotation.y, propConfig.rotation.z, 2, true)
+    FreezeEntityPosition(mainObject, true)
+    SetEntityAsMissionEntity(mainObject, true, true)
+    
+    local objectData = {
+        mainObject = mainObject,
+        additionalObjects = {}
+    }
+    
+    -- Criar props adicionais se existirem
+    if propConfig.additionalProps then
+        for _, prop in ipairs(propConfig.additionalProps) do
+            RequestModel(GetHashKey(prop.model))
+            while not HasModelLoaded(GetHashKey(prop.model)) do
+                Wait(10)
+            end
+            
+            local propCoords = vector3(
+                location.coords.x + prop.offset.x,
+                location.coords.y + prop.offset.y,
+                location.coords.z + prop.offset.z
+            )
+            
+            local object = CreateObject(GetHashKey(prop.model), propCoords.x, propCoords.y, propCoords.z, false, false, false)
+            SetEntityRotation(object, prop.rotation.x, prop.rotation.y, prop.rotation.z, 2, true)
+            FreezeEntityPosition(object, true)
+            SetEntityAsMissionEntity(object, true, true)
+            
+            table.insert(objectData.additionalObjects, object)
+        end
+    end
+    
+    DebugPrint("Criada mesa de crafting para gang " .. gang)
+    return objectData
+end
+
+-- Função para remover mesa de crafting
+function RemoveCraftingTable(objectData)
+    if not objectData then return end
+    
+    if DoesEntityExist(objectData.mainObject) then
+        DeleteObject(objectData.mainObject)
+    end
+    
+    for _, object in ipairs(objectData.additionalObjects) do
+        if DoesEntityExist(object) then
+            DeleteObject(object)
+        end
+    end
+    
+    DebugPrint("Removida mesa de crafting")
+end
+
 -- Initialize player data
 RegisterNetEvent('QBCore:Client:OnPlayerLoaded', function()
     PlayerData = QBCore.Functions.GetPlayerData()
     PlayerGang = PlayerData.gang
     DebugPrint("Player loaded, Gang: " .. PlayerGang.name)
+    
+    -- Clear any existing objects first
+    CleanupCraftingObjects()
+    
+    -- Setup physical objects for all gangs (visual only)
+    SetupAllCraftingObjects()
+    
+    -- Then setup interaction zones only for player's gang
     SetupCraftingZones()
 end)
 
@@ -23,17 +106,44 @@ RegisterNetEvent('QBCore:Client:OnGangUpdate', function(gang)
     PlayerGang = gang
     DebugPrint("Gang updated to: " .. PlayerGang.name)
     
-    -- Remove existing crafting zones
+    -- Remove existing crafting zones (not objects)
     for _, zone in pairs(craftingZones) do
         exports['qb-target']:RemoveZone(zone)
     end
     craftingZones = {}
     
-    -- Setup new crafting zones
+    -- Setup new crafting zones for player's gang only
     SetupCraftingZones()
 end)
 
--- Function to set up all crafting zones based on player's gang
+-- Function to cleanup all crafting objects
+function CleanupCraftingObjects()
+    for zoneName, objectData in pairs(craftingObjects) do
+        RemoveCraftingTable(objectData)
+    end
+    craftingObjects = {}
+end
+
+-- Function to setup all physical crafting objects for all gangs
+function SetupAllCraftingObjects()
+    -- Create objects for all gang locations
+    for gang, locations in pairs(Config.CraftingTables) do
+        for i, location in ipairs(locations) do
+            local zoneName = "gangCrafting_" .. gang .. "_" .. i
+            DebugPrint("Creating physical objects for: " .. zoneName)
+            
+            if Config.CraftingProps[gang] then
+                local tableObject = CreateCraftingTable(gang, location)
+                if tableObject then
+                    craftingObjects[zoneName] = tableObject
+                end
+            end
+        end
+    end
+    DebugPrint("Created physical objects for all gang crafting tables")
+end
+
+-- Function to set up interaction zones ONLY for player's gang
 function SetupCraftingZones()
     if not PlayerGang or PlayerGang.name == 'none' then 
         DebugPrint("Player has no gang, not setting up crafting zones")
@@ -46,17 +156,18 @@ function SetupCraftingZones()
         return
     end
     
-    DebugPrint("Setting up crafting zones for gang: " .. PlayerGang.name)
+    DebugPrint("Setting up interaction zones for gang: " .. PlayerGang.name)
     
-    -- Create a target zone for each crafting table
+    -- Create interaction zones only for player's gang locations
     for i, location in ipairs(Config.CraftingTables[PlayerGang.name]) do
         local zoneName = "gangCrafting_" .. PlayerGang.name .. "_" .. i
-        DebugPrint("Creating zone: " .. zoneName .. " at " .. json.encode(location.coords))
+        DebugPrint("Creating interaction zone: " .. zoneName)
         
-        exports['qb-target']:AddBoxZone(zoneName, location.coords, location.length or 1.0, location.width or 1.0, {
+        -- Increase the size of the interaction zone but make it invisible
+        exports['qb-target']:AddBoxZone(zoneName, location.coords, location.length or 1.5, location.width or 1.5, {
             name = zoneName,
             heading = location.heading or 0.0,
-            debugPoly = Config.Debug,
+            debugPoly = false, -- Turn off debug polygon
             minZ = location.minZ or (location.coords.z - 1.0),
             maxZ = location.maxZ or (location.coords.z + 1.0),
         }, {
@@ -69,31 +180,38 @@ function SetupCraftingZones()
                     gang = PlayerGang.name,
                 }
             },
-            distance = 2.0
+            distance = 3.0  -- Increased interaction distance
         })
         
-        -- Also add a 3D marker and text to make it more visible
+        -- Only add text without marker - this is gang-specific
         CreateThread(function()
             local coords = location.coords
+            local keyPressed = false
+            
             while true do
-                local inRange = false
+                local sleep = 1500
                 local pos = GetEntityCoords(PlayerPedId())
                 local dist = #(pos - coords)
                 
                 if dist < 10.0 then
-                    inRange = true
-                    DrawMarker(2, coords.x, coords.y, coords.z, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.3, 0.3, 0.2, 210, 50, 9, 255, false, false, false, true, false, false, false)
+                    sleep = 0
                     
                     if dist < 3.0 then
-                        DrawText3Ds(coords.x, coords.y, coords.z + 0.3, "[E] Gang Crafting")
+                        -- Only show text for gang members
+                        DrawText3Ds(coords.x, coords.y, coords.z + 0.5, "[E] Gang Crafting")
+                        
+                        -- Direct key press interaction
+                        if IsControlJustPressed(0, 38) and not keyPressed then -- 38 is E key
+                            keyPressed = true
+                            DebugPrint("E key pressed at crafting location")
+                            TriggerEvent("qb-gangcrafting:client:OpenCraftingMenu")
+                            Wait(1000) -- Prevent spamming
+                            keyPressed = false
+                        end
                     end
                 end
                 
-                if not inRange then
-                    Wait(1500)
-                else
-                    Wait(0)
-                end
+                Wait(sleep)
             end
         end)
         
@@ -239,8 +357,8 @@ RegisterNetEvent('qb-gangcrafting:client:CraftItem', function(data)
         if hasItem then
             -- Enhanced crafting animation with prop and effects
             local ped = PlayerPedId()
-            local animDict = "anim@amb@clubhouse@tutorial@bkr_tut_ig3@"
-            local anim = "machinic_loop_mechandplayer"
+            local animDict = "amb@prop_human_parking_meter@female@idle_a"
+            local anim = "idle_a_female"
             local craftingProp = nil
             local craftingSound = nil
             local particleEffect = nil
@@ -303,13 +421,13 @@ RegisterNetEvent('qb-gangcrafting:client:CraftItem', function(data)
                     StopParticleFxLooped(particleEffect, 0)
                 end
                 
-                -- Success notification and explosion effect for completion
-                if item.type == "weapon" then
-                    -- Small smoke puff for weapon completion
-                    UseParticleFxAssetNextCall("core")
-                    StartParticleFxNonLoopedAtCoord("ent_sht_steam", GetEntityCoords(ped), 0.0, 0.0, 0.0, 0.5, false, false, false)
-                    PlaySoundFrontend(-1, "PICK_UP", "HUD_FRONTEND_DEFAULT_SOUNDSET", 1)
-                end
+                -- -- Success notification and explosion effect for completion
+                -- if item.type == "weapon" then
+                --     -- Small smoke puff for weapon completion
+                --     UseParticleFxAssetNextCall("core")
+                --     StartParticleFxNonLoopedAtCoord("ent_sht_steam", GetEntityCoords(ped), 0.0, 0.0, 0.0, 0.5, false, false, false)
+                --     PlaySoundFrontend(-1, "PICK_UP", "HUD_FRONTEND_DEFAULT_SOUNDSET", 1)
+                -- end
                 
                 TriggerServerEvent('qb-gangcrafting:server:CraftItem', item)
                 QBCore.Functions.Notify("Finished crafting " .. itemName, "success")
@@ -349,26 +467,19 @@ RegisterNetEvent('qb-gangcrafting:client:CraftItem', function(data)
 end)
 
 -- Add blips for crafting locations if debug mode is on
+-- Modificado para não criar blips visuais
 Citizen.CreateThread(function()
     if Config.Debug then
+        -- Debug no console apenas, sem criar blips visuais
         for gang, locations in pairs(Config.CraftingTables) do
             for i, location in ipairs(locations) do
-                DebugPrint("Creating blip for " .. gang .. " crafting location " .. i)
-                local blip = AddBlipForCoord(location.coords.x, location.coords.y, location.coords.z)
-                SetBlipSprite(blip, 566)
-                SetBlipDisplay(blip, 4)
-                SetBlipScale(blip, 0.7)
-                SetBlipColour(blip, 1)
-                SetBlipAsShortRange(blip, true)
-                BeginTextCommandSetBlipName("STRING")
-                AddTextComponentString(gang .. " Crafting #" .. i)
-                EndTextCommandSetBlipName(blip)
+                DebugPrint("Crafting location for " .. gang .. " #" .. i .. " at " .. json.encode(location.coords))
             end
         end
     end
 end)
 
--- Initialize crafting zones when resource starts
+-- Initialize crafting objects when resource starts
 AddEventHandler('onResourceStart', function(resourceName)
     if resourceName == GetCurrentResourceName() then
         Wait(1000) -- Wait for QBCore to be available
@@ -376,7 +487,37 @@ AddEventHandler('onResourceStart', function(resourceName)
         if PlayerData and PlayerData.gang then
             PlayerGang = PlayerData.gang
             DebugPrint("Resource started, Gang: " .. PlayerGang.name)
+            
+            -- Setup physical objects for everyone first
+            SetupAllCraftingObjects()
+            
+            -- Then setup interaction for the player's gang only
             SetupCraftingZones()
         end
     end
+end)
+
+-- Garantir a limpeza dos objetos quando o recurso for parado
+AddEventHandler('onResourceStop', function(resourceName)
+    if resourceName == GetCurrentResourceName() then
+        CleanupCraftingObjects()
+    end
+end)
+
+-- Evento para recriar as mesas
+RegisterNetEvent('qb-gangcrafting:client:RefreshCraftingTables', function()
+    -- Clean up all existing objects
+    CleanupCraftingObjects()
+    
+    -- Recreate all objects for all gangs
+    SetupAllCraftingObjects()
+    
+    -- Recreate interaction zones for player's gang
+    for _, zone in pairs(craftingZones) do
+        exports['qb-target']:RemoveZone(zone)
+    end
+    craftingZones = {}
+    SetupCraftingZones()
+    
+    QBCore.Functions.Notify("Mesas de crafting recarregadas", "success")
 end)

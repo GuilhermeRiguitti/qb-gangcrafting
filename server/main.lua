@@ -239,3 +239,21 @@ QBCore.Functions.CreateCallback('QBCore:HasItem', function(source, cb, items)
     
     cb(hasItems)
 end)
+
+-- Callback para obter informações sobre as mesas de crafting
+QBCore.Functions.CreateCallback('qb-gangcrafting:server:GetCraftingTables', function(source, cb)
+    cb(Config.CraftingTables)
+end)
+
+-- Comando para recriar as mesas de crafting (caso bugue)
+QBCore.Commands.Add('refreshcrafting', 'Recriar mesas de crafting (Admin)', {}, false, function(source)
+    local src = source
+    local Player = QBCore.Functions.GetPlayer(src)
+    
+    if Player.PlayerData.permission == 'admin' then
+        TriggerClientEvent('qb-gangcrafting:client:RefreshCraftingTables', -1)
+        TriggerClientEvent('QBCore:Notify', src, "Mesas de crafting recarregadas para todos os jogadores", "success")
+    else
+        TriggerClientEvent('QBCore:Notify', src, "Você não tem permissão", "error")
+    end
+end, 'admin')
