@@ -141,10 +141,10 @@ Config.CraftingTables = {
     },
     ['cartel'] = {
         {
-            coords = vector3(1451.32, 1135.47, 114.33), -- Specified location for Cartel
+            coords = vector3(-589.39, -1618.4, 33.01), -- Specified location for Cartel
             heading = 0.0,
-            minZ = 113.33,
-            maxZ = 115.33,
+            minZ = 578.33,
+            maxZ = 625.33,
             length = 1.0,
             width = 1.0
         }
@@ -207,8 +207,8 @@ Config.CraftingProps = {
     },
     ['cartel'] = {
         model = "gr_prop_gr_bench_02b", -- Mesa diferente para o cartel
-        offset = vector3(-1.8, 0.0, -1.0),
-        rotation = vector3(0.0, 0.0, 88.0),
+        offset = vector3(0.8, 0.0, -1.0),
+        rotation = vector3(0.0, 0.0, 266.0),
         -- additionalProps = {
         --     {
         --         model = "prop_tool_box_02",
