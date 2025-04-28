@@ -1,3 +1,13 @@
+--[[ 
+  qb-gangcrafting
+  Um sistema de crafting para gangues no QBCore
+  
+  Desenvolvido por: Guilherme Riguitti
+  GitHub: https://github.com/GuilhermeRiguitti
+  
+  Copyright (c) 2025 Guilherme Riguitti
+]]--
+
 Config = {}
 Config.Debug = true -- Set to true for detailed logging while testing
 

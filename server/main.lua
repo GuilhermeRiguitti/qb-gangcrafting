@@ -1,3 +1,13 @@
+--[[ 
+  qb-gangcrafting
+  Um sistema de crafting para gangues no QBCore
+  
+  Desenvolvido por: Guilherme Riguitti
+  GitHub: https://github.com/GuilhermeRiguitti
+  
+  Copyright (c) 2025 Guilherme Riguitti
+]]--
+
 local QBCore = exports['qb-core']:GetCoreObject()
 
 -- Debug function with enhanced visibility
