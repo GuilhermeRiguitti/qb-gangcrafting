@@ -1,13 +1,3 @@
---[[ 
-  qb-gangcrafting
-  Um sistema de crafting para gangues no QBCore
-  
-  Desenvolvido por: Guilherme Riguitti
-  GitHub: https://github.com/GuilhermeRiguitti
-  
-  Copyright (c) 2025 Guilherme Riguitti
-]]--
-
 local QBCore = exports['qb-core']:GetCoreObject()
 
 -- Debug function with enhanced visibility
@@ -34,7 +24,7 @@ RegisterNetEvent('qb-gangcrafting:server:CraftItem', function(item)
     -- Security verification for the item - MODIFIED: removed amount check
     if not item or not item.item or not item.type then
         DebugPrint("Invalid item data received from client")
-        TriggerClientEvent('QBCore:Notify', src, "Error in crafting system", "error")
+        TriggerClientEvent('QBCore:Notify', src, "Erro no sistema de fabricação", "error")
         return
     end
     
@@ -44,7 +34,7 @@ RegisterNetEvent('qb-gangcrafting:server:CraftItem', function(item)
     -- Verify the item exists in QBCore.Shared.Items
     if not QBCore.Shared.Items[item.item] then
         DebugPrint("ERROR: Item " .. item.item .. " not found in QBCore.Shared.Items")
-        TriggerClientEvent('QBCore:Notify', src, "Error: Item doesn't exist in system", "error")
+        TriggerClientEvent('QBCore:Notify', src, "Erro: Item não existe no sistema", "error")
         return
     end
     
@@ -55,48 +45,31 @@ RegisterNetEvent('qb-gangcrafting:server:CraftItem', function(item)
     local playerGangGrade = Player.PlayerData.gang.grade.level
     DebugPrint("Player Gang: " .. playerGang .. " | Grade: " .. playerGangGrade)
     
-    local configGang = nil
-    
-    -- Find which gang this item belongs to
-    for gang, _ in pairs(Config.Weapons) do
-        for _, craftItem in ipairs(Config.Weapons[gang]) do
-            if craftItem.item == item.item and craftItem.type == item.type then
-                configGang = gang
-                DebugPrint("Found matching item in gang: " .. gang)
-                break
-            end
-        end
-        if configGang then break end
-    end
-    
-    -- Security checks
-    if not configGang then
-        DebugPrint("Item does not belong to any configured gang")
-        TriggerClientEvent('QBCore:Notify', src, "This item cannot be crafted", "error")
-        return
-    end
-    
-    if configGang ~= playerGang then
-        DebugPrint("Player gang (" .. playerGang .. ") does not match item gang (" .. configGang .. ")")
-        TriggerClientEvent('QBCore:Notify', src, "You are not authorized to craft this item", "error")
-        return
-    end
-    
-    -- Check if player has the required gang grade
+    -- Check if player has the required gang grade for this item
     local requiredGrade = 0
     local xpGain = 0
+    local canCraft = false
     
-    for _, craftItem in ipairs(Config.Weapons[playerGang]) do
-        if craftItem.item == item.item and craftItem.type == item.type then
-            requiredGrade = craftItem.requiredGradeLevel
-            xpGain = craftItem.xpGain
-            break
+    -- Find this item's requirements in all gang configs to allow multiple gangs to craft the same item
+    for gang, items in pairs(Config.IllegalCraftItems) do
+        for _, craftItem in ipairs(items) do
+            -- If this matches our crafting item
+            if craftItem.item == item.item and craftItem.type == item.type then
+                -- Check if this is the player's gang
+                if gang == playerGang then
+                    requiredGrade = craftItem.requiredGradeLevel
+                    xpGain = craftItem.xpGain
+                    canCraft = playerGangGrade >= requiredGrade
+                    break
+                end
+            end
         end
+        if canCraft then break end
     end
     
-    if playerGangGrade < requiredGrade then
+    if not canCraft then
         DebugPrint("Player grade (" .. playerGangGrade .. ") is lower than required (" .. requiredGrade .. ")")
-        TriggerClientEvent('QBCore:Notify', src, "Your rank is too low to craft this item", "error")
+        TriggerClientEvent('QBCore:Notify', src, "Seu cargo é muito baixo para fabricar este item", "error")
         return
     end
     
@@ -116,7 +89,7 @@ RegisterNetEvent('qb-gangcrafting:server:CraftItem', function(item)
     end
     
     if not hasAllItems then
-        TriggerClientEvent('QBCore:Notify', src, "You don't have all the required materials", "error")
+        TriggerClientEvent('QBCore:Notify', src, "Você não tem todos os materiais necessários", "error")
         return
     end
     
@@ -131,11 +104,14 @@ RegisterNetEvent('qb-gangcrafting:server:CraftItem', function(item)
     -- Give crafted item
     DebugPrint("Giving crafted item: " .. item.item)
     local itemAmount = 1
+    
+    -- Determine item amount based on type and category
     if item.type == "item" then
-        -- For ammo or other stackable items, give a reasonable amount
-        if string.find(item.item, "ammo") then
+        if item.category == "ammo" then
             itemAmount = 10 -- Give 10 ammo per craft
         end
+    elseif item.type == "weapon_part" then
+        itemAmount = 1 -- Always give 1 weapon part
     end
     
     -- Add the item to player inventory
@@ -147,13 +123,23 @@ RegisterNetEvent('qb-gangcrafting:server:CraftItem', function(item)
         -- Add XP/reputation
         if xpGain > 0 then
             Player.Functions.AddGangRep(xpGain)
-            TriggerClientEvent('QBCore:Notify', src, "You gained " .. xpGain .. " gang reputation", "success")
+            -- Use both notification methods for better reliability
+            TriggerClientEvent('QBCore:Notify', src, "Você ganhou " .. xpGain .. " de reputação na gangue", "success")
+            TriggerClientEvent('QBCore:ShowNotification', src, "Você ganhou " .. xpGain .. " de reputação na gangue")
         end
         
-        TriggerClientEvent('QBCore:Notify', src, "You crafted: " .. QBCore.Shared.Items[item.item].label, "success")
+        -- Enhanced notifications using multiple methods to ensure visibility
+        local itemLabel = QBCore.Shared.Items[item.item].label
+        -- Primary notification
+        TriggerClientEvent('QBCore:Notify', src, "Você fabricou: " .. itemLabel, "success", 3500)
+        -- Backup notification using alternative method
+        Wait(100) -- Small delay between notifications
+        TriggerClientEvent('QBCore:ShowNotification', src, "Você fabricou: " .. itemLabel)
+        -- Attempt to use a third notification type if available
+        TriggerClientEvent('esx:showNotification', src, "Você fabricou: " .. itemLabel)
     else
         DebugPrint("ERROR: Failed to add crafted item to inventory")
-        TriggerClientEvent('QBCore:Notify', src, "Failed to craft item - inventory issue", "error")
+        TriggerClientEvent('QBCore:Notify', src, "Falha ao fabricar item - problema no inventário", "error")
         -- Try to return the materials since crafting failed
         for _, reqItem in ipairs(item.requiredItems) do
             Player.Functions.AddItem(reqItem.item, reqItem.amount)
@@ -196,9 +182,9 @@ RegisterCommand('myganginfo', function(source)
     -- Check if the player's gang has crafting configured
     if Config.Weapons[Player.PlayerData.gang.name] then
         local itemCount = #Config.Weapons[Player.PlayerData.gang.name]
-        TriggerClientEvent('QBCore:Notify', src, "Your gang has " .. itemCount .. " craftable items", "success")
+        TriggerClientEvent('QBCore:Notify', src, "Sua gangue tem " .. itemCount .. " itens fabricáveis", "success")
     else
-        TriggerClientEvent('QBCore:Notify', src, "Your gang doesn't have crafting configured", "error")
+        TriggerClientEvent('QBCore:Notify', src, "Sua gangue não tem fabricação configurada", "error")
     end
 end)
 
@@ -244,7 +230,7 @@ QBCore.Functions.CreateCallback('QBCore:HasItem', function(source, cb, items)
     end
     
     if not hasItems and #missingItems > 0 then
-        TriggerClientEvent('QBCore:Notify', src, "Missing: " .. table.concat(missingItems, ", "), "error")
+        TriggerClientEvent('QBCore:Notify', src, "Faltando: " .. table.concat(missingItems, ", "), "error")
     end
     
     cb(hasItems)

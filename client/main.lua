@@ -1,13 +1,3 @@
---[[ 
-  qb-gangcrafting
-  Um sistema de crafting para gangues no QBCore
-  
-  Desenvolvido por: Guilherme Riguitti
-  GitHub: https://github.com/GuilhermeRiguitti
-  
-  Copyright (c) 2025 Guilherme Riguitti
-]]--
-
 local QBCore = exports['qb-core']:GetCoreObject()
 local PlayerData = {}
 local PlayerGang = {}
@@ -208,7 +198,7 @@ function SetupCraftingZones()
                     
                     if dist < 3.0 then
                         -- Only show text for gang members
-                        DrawText3Ds(coords.x, coords.y, coords.z + 0.5, "[E] Gang Crafting")
+                        DrawText3Ds(coords.x, coords.y, coords.z + 0.5, "[E]")
                         
                         -- Direct key press interaction
                         if IsControlJustPressed(0, 38) and not keyPressed then -- 38 is E key
@@ -247,57 +237,217 @@ function DrawText3Ds(x, y, z, text)
     ClearDrawOrigin()
 end
 
--- Function to get available weapons for player's gang
-local function GetGangWeapons()
-    if not PlayerGang or not Config.Weapons[PlayerGang.name] then return {} end
+-- Function to get available crafting items for player's gang
+local function GetGangCraftItems()
+    if not PlayerGang or not Config.IllegalCraftItems[PlayerGang.name] then return {} end
     
     local gangGrade = PlayerGang.grade.level
-    local availableWeapons = {}
+    local availableItems = {
+        weapons = {},
+        items = {},
+        parts = {}  -- New category for weapon parts
+    }
     
-    for _, weapon in ipairs(Config.Weapons[PlayerGang.name]) do
-        if gangGrade >= weapon.requiredGradeLevel then
-            table.insert(availableWeapons, weapon)
+    DebugPrint("Getting craft items for gang: " .. PlayerGang.name .. " with grade: " .. gangGrade)
+    
+    for _, craftItem in ipairs(Config.IllegalCraftItems[PlayerGang.name]) do
+        DebugPrint("Checking item: " .. craftItem.item .. " of type: " .. (craftItem.type or "unknown"))
+        
+        if gangGrade >= craftItem.requiredGradeLevel then
+            if craftItem.type == "weapon" then
+                table.insert(availableItems.weapons, craftItem)
+                DebugPrint("Added weapon: " .. craftItem.item)
+            elseif craftItem.type == "weapon_part" then
+                -- Add to weapon parts category
+                table.insert(availableItems.parts, craftItem)
+                DebugPrint("Added weapon part: " .. craftItem.item)
+            elseif craftItem.type == "item" then
+                table.insert(availableItems.items, craftItem)
+                DebugPrint("Added item: " .. craftItem.item)
+            end
         end
     end
     
-    return availableWeapons
+    DebugPrint("Found " .. #availableItems.weapons .. " weapons, " .. 
+               #availableItems.items .. " items, and " .. 
+               #availableItems.parts .. " weapon parts")
+    
+    return availableItems
 end
+
+-- Global variable to track current crafting tab
+local currentCraftingTab = "weapons"
 
 -- Event for opening the crafting menu
 RegisterNetEvent('qb-gangcrafting:client:OpenCraftingMenu', function()
-    local weapons = GetGangWeapons()
+    local craftItems = GetGangCraftItems()
     
-    if #weapons == 0 then
-        QBCore.Functions.Notify("No weapons available for your gang rank", "error")
+    -- Count available items in each category
+    local weaponsCount = #craftItems.weapons
+    local itemsCount = #craftItems.items
+    local partsCount = #craftItems.parts
+    
+    -- Check if there are any items available at all
+    if weaponsCount == 0 and itemsCount == 0 and partsCount == 0 then
+        QBCore.Functions.Notify("Nenhum item disponível para o seu cargo na gangue", "error")
         return
     end
     
+    -- Create menu with tabs
     local menuItems = {}
-    for _, weapon in ipairs(weapons) do
-        local itemInfo = QBCore.Shared.Items[weapon.item]
-        if itemInfo then
-            table.insert(menuItems, {
-                header = itemInfo.label,
-                txt = "Required Gang Rank: " .. weapon.requiredGradeLevel .. " | XP Gain: " .. weapon.xpGain,
-                icon = "fas fa-" .. (weapon.type == "weapon" and "gun" or "box"),
-                params = {
-                    event = "qb-gangcrafting:client:ShowCraftingRequirements",
-                    args = {
-                        item = weapon
-                    }
+    
+    -- Tab buttons at the top
+    table.insert(menuItems, {
+        header = "Menu de Fabricação Ilegal",
+        txt = "Selecione uma categoria para fabricar",
+        isMenuHeader = true
+    })
+    
+    -- Only add weapon tab if there are weapons available
+    if weaponsCount > 0 then
+        table.insert(menuItems, {
+            header = "Armas",
+            txt = weaponsCount .. " itens disponíveis",
+            icon = "fas fa-gun",
+            params = {
+                event = "qb-gangcrafting:client:ShowTab",
+                args = {
+                    tab = "weapons"
                 }
-            })
-        end
+            }
+        })
     end
     
-    if #menuItems == 0 then
-        QBCore.Functions.Notify("No craftable items available", "error")
-        return
+    -- Only add illegal items tab if there are items available
+    if itemsCount > 0 then
+        table.insert(menuItems, {
+            header = "Itens Ilegais",
+            txt = itemsCount .. " itens disponíveis",
+            icon = "fas fa-boxes-stacked",
+            params = {
+                event = "qb-gangcrafting:client:ShowTab",
+                args = {
+                    tab = "items"
+                }
+            }
+        })
+    end
+    
+    -- Only add weapon parts tab if there are parts available
+    if partsCount > 0 then
+        table.insert(menuItems, {
+            header = "Peças de Armas",
+            txt = partsCount .. " itens disponíveis",
+            icon = "fas fa-wrench",
+            params = {
+                event = "qb-gangcrafting:client:ShowTab",
+                args = {
+                    tab = "parts"
+                }
+            }
+        })
     end
     
     -- Add a close button
     table.insert(menuItems, {
-        header = "Close Menu",
+        header = "Fechar Menu",
+        txt = "",
+        icon = "fas fa-times",
+        params = {
+            event = "qb-menu:client:closeMenu"
+        }
+    })
+    
+    exports['qb-menu']:openMenu(menuItems)
+end)
+
+-- Event to show specific tab content (weapons, items or parts)
+RegisterNetEvent('qb-gangcrafting:client:ShowTab', function(data)
+    local craftItems = GetGangCraftItems()
+    local tab = data.tab
+    currentCraftingTab = tab
+    
+    local menuItems = {}
+    
+    -- Header with back button
+    table.insert(menuItems, {
+        header = "← Voltar ao Menu Principal",
+        txt = "",
+        icon = "fas fa-arrow-left",
+        params = {
+            event = "qb-gangcrafting:client:OpenCraftingMenu"
+        }
+    })
+    
+    -- Title for the current tab
+    local tabTitle = "Fabricação"
+    if tab == "weapons" then
+        tabTitle = "Fabricação de Armas"
+    elseif tab == "items" then
+        tabTitle = "Fabricação de Itens Ilegais"
+    elseif tab == "parts" then
+        tabTitle = "Fabricação de Peças de Armas"
+    end
+    
+    table.insert(menuItems, {
+        header = tabTitle,
+        txt = "Selecione um item para ver os requisitos",
+        isMenuHeader = true
+    })
+    
+    -- List items based on selected tab
+    local tabItems = {}
+    if tab == "weapons" then
+        tabItems = craftItems.weapons
+    elseif tab == "items" then
+        tabItems = craftItems.items
+    elseif tab == "parts" then
+        tabItems = craftItems.parts
+    end
+    
+    -- Check if there are items in this tab
+    if tabItems and #tabItems > 0 then
+        for _, craftItem in ipairs(tabItems) do
+            local itemInfo = QBCore.Shared.Items[craftItem.item]
+            if itemInfo then
+                local icon = "fas fa-box"
+                if tab == "weapons" then 
+                    icon = "fas fa-gun"
+                elseif tab == "parts" then
+                    icon = "fas fa-wrench"
+                elseif craftItem.category == "ammo" then
+                    icon = "fas fa-bullseye"
+                elseif craftItem.category == "tools" then
+                    icon = "fas fa-tools"
+                end
+                
+                table.insert(menuItems, {
+                    header = itemInfo.label,
+                    txt = "Level necessário: " .. craftItem.requiredGradeLevel .. " | XP Gain: " .. craftItem.xpGain,
+                    icon = icon,
+                    params = {
+                        event = "qb-gangcrafting:client:ShowCraftingRequirements",
+                        args = {
+                            item = craftItem
+                        }
+                    }
+                })
+            else
+                DebugPrint("Warning: Item info not found for " .. craftItem.item)
+            end
+        end
+    else
+        -- No items available in this category (this should not normally happen, since we only show tabs with items)
+        table.insert(menuItems, {
+            header = "Nenhum item disponível",
+            txt = "Seu cargo na gangue não tem acesso a estes itens",
+            isMenuHeader = true
+        })
+    end
+    
+    -- Add close button
+    table.insert(menuItems, {
+        header = "Fechar Menu",
         txt = "",
         icon = "fas fa-times",
         params = {
@@ -313,41 +463,53 @@ RegisterNetEvent('qb-gangcrafting:client:ShowCraftingRequirements', function(dat
     local item = data.item
     local requiredItems = {}
     
+    -- Menu header
+    table.insert(requiredItems, {
+        header = "← Voltar",
+        txt = "Retornar à lista de itens",
+        icon = "fas fa-arrow-left",
+        params = {
+            event = "qb-gangcrafting:client:ShowTab",
+            args = {
+                tab = currentCraftingTab
+            }
+        }
+    })
+    
+    -- Item header
+    local itemInfo = QBCore.Shared.Items[item.item]
+    table.insert(requiredItems, {
+        header = "Fabricar: " .. itemInfo.label,
+        txt = itemInfo.description or "Sem descrição disponível",
+        isMenuHeader = true
+    })
+    
+    -- Required items list
     for _, reqItem in ipairs(item.requiredItems) do
-        local itemInfo = QBCore.Shared.Items[reqItem.item]
-        if itemInfo then
+        local reqItemInfo = QBCore.Shared.Items[reqItem.item]
+        if reqItemInfo then
             table.insert(requiredItems, {
-                header = "Required: " .. itemInfo.label .. " x" .. reqItem.amount,
-                txt = itemInfo.description or "No description available",
+                header = "Necessário: " .. reqItemInfo.label .. " x" .. reqItem.amount,
+                txt = reqItemInfo.description or "Sem descrição disponível",
                 icon = "fas fa-tools",
                 isMenuHeader = true
             })
         else
-            QBCore.Functions.Notify("Error: Item not found in database", "error")
+            QBCore.Functions.Notify("Erro: Item não encontrado no banco de dados", "error")
             return
         end
     end
     
     -- Add craft button
     table.insert(requiredItems, {
-        header = "Craft " .. QBCore.Shared.Items[item.item].label,
-        txt = "Start crafting this item",
+        header = "Fabricar " .. QBCore.Shared.Items[item.item].label,
+        txt = "Iniciar fabricação deste item",
         icon = "fas fa-hammer",
         params = {
             event = "qb-gangcrafting:client:CraftItem",
             args = {
                 item = item
             }
-        }
-    })
-    
-    -- Add back button
-    table.insert(requiredItems, {
-        header = "Go Back",
-        txt = "Return to main menu",
-        icon = "fas fa-arrow-left",
-        params = {
-            event = "qb-gangcrafting:client:OpenCraftingMenu"
         }
     })
     
@@ -379,7 +541,7 @@ RegisterNetEvent('qb-gangcrafting:client:CraftItem', function(data)
                 Wait(10)
             end
             
-            -- Animation and crafting logic with enhanced effects
+            -- Different animations and props based on item type
             if item.type == "weapon" then
                 -- Create a weapon crafting prop
                 craftingProp = CreateObject(GetHashKey("prop_tool_box_04"), 0, 0, 0, true, true, true)
@@ -390,7 +552,16 @@ RegisterNetEvent('qb-gangcrafting:client:CraftItem', function(data)
                 PlaySoundFromEntity(craftingSound, "Drill", ped, "DLC_HEIST_FLEECA_SOUNDSET", false, 0)
             else
                 -- Different prop for non-weapon items
-                craftingProp = CreateObject(GetHashKey("prop_tool_box_02"), 0, 0, 0, true, true, true)
+                local propModel = "prop_tool_box_02"
+                
+                -- Special props for certain categories
+                if item.category == "ammo" then
+                    propModel = "prop_box_ammo03a"
+                elseif item.category == "tools" then
+                    propModel = "prop_tool_box_02"
+                end
+                
+                craftingProp = CreateObject(GetHashKey(propModel), 0, 0, 0, true, true, true)
                 AttachEntityToEntity(craftingProp, ped, GetPedBoneIndex(ped, 28422), 0.0, -0.18, 0.0, 0.0, 0.0, 0.0, true, true, false, true, 1, true)
                 
                 -- General crafting sound
@@ -431,25 +602,22 @@ RegisterNetEvent('qb-gangcrafting:client:CraftItem', function(data)
                     StopParticleFxLooped(particleEffect, 0)
                 end
                 
-                -- -- Success notification and explosion effect for completion
-                -- if item.type == "weapon" then
-                --     -- Small smoke puff for weapon completion
-                --     UseParticleFxAssetNextCall("core")
-                --     StartParticleFxNonLoopedAtCoord("ent_sht_steam", GetEntityCoords(ped), 0.0, 0.0, 0.0, 0.5, false, false, false)
-                --     PlaySoundFrontend(-1, "PICK_UP", "HUD_FRONTEND_DEFAULT_SOUNDSET", 1)
-                -- end
+                -- Client-side notification before server event
+                QBCore.Functions.Notify("Fabricação concluída!", "success", 3500)
                 
+                -- Trigger server event to complete crafting
                 TriggerServerEvent('qb-gangcrafting:server:CraftItem', item)
-                QBCore.Functions.Notify("Finished crafting " .. itemName, "success")
                 
-                -- Add a cool 'finishing touch' animation
-                RequestAnimDict("anim@mp_player_intuppergolf")
-                while not HasAnimDictLoaded("anim@mp_player_intuppergolf") do
-                    Wait(10)
-                end
-                TaskPlayAnim(ped, "anim@mp_player_intuppergolf", "idle_a", 8.0, -8.0, 2000, 0, false, false, false)
-                Wait(2000)
-                ClearPedTasks(ped)
+             
+                
+                -- Register a delayed notification as a fail-safe
+                SetTimeout(500, function()
+                    QBCore.Functions.Notify("Item adicionado ao inventário: " .. itemName, "success", 3500)
+                end)
+                
+                -- After crafting, return to the appropriate tab menu
+                Wait(500)
+                TriggerEvent('qb-gangcrafting:client:ShowTab', {tab = currentCraftingTab})
                 
             end, function() -- Cancel
                 -- Clean up if canceled
@@ -468,10 +636,10 @@ RegisterNetEvent('qb-gangcrafting:client:CraftItem', function(data)
                     StopParticleFxLooped(particleEffect, 0)
                 end
                 
-                QBCore.Functions.Notify("Cancelled crafting", "error")
+                QBCore.Functions.Notify("Fabricação cancelada", "error")
             end)
         else
-            QBCore.Functions.Notify("You don't have all required materials", "error")
+            QBCore.Functions.Notify("Você não tem todos os materiais necessários", "error", 3500)
         end
     end, item.requiredItems)
 end)

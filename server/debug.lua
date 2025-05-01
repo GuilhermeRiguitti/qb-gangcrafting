@@ -45,6 +45,35 @@ QBCore.Commands.Add('checkcrafting', 'Verificar sistema de crafting (Admin)', {}
     print("===============================")
 end, 'admin')
 
+-- Comando para testar notificações
+QBCore.Commands.Add('testnotify', 'Testar sistema de notificações (Admin/Debug)', {}, false, function(source)
+    local src = source
+    local Player = QBCore.Functions.GetPlayer(src)
+    
+    if not Player or (Player.PlayerData.permission ~= 'admin' and not Config.Debug) then
+        TriggerClientEvent('QBCore:Notify', src, "Apenas admins podem usar este comando", "error")
+        return
+    end
+    
+    -- Try different notification methods
+    print("^3[qb-gangcrafting] ^7Sending test notifications to player " .. src)
+    
+    -- Method 1: Standard QBCore notification
+    TriggerClientEvent('QBCore:Notify', src, "Teste de notificação #1 (QBCore:Notify)", "success")
+    Wait(1000)
+    
+    -- Method 2: Alternative notification if available
+    TriggerClientEvent('QBCore:ShowNotification', src, "Teste de notificação #2 (QBCore:ShowNotification)")
+    Wait(1000)
+    
+    -- Method 3: ESX fallback for compatibility
+    TriggerClientEvent('esx:showNotification', src, "Teste de notificação #3 (ESX style)")
+    
+    -- Log notification attempt to console
+    print("^2Test notifications sent to player " .. src)
+    TriggerClientEvent('QBCore:Notify', src, "Verificar console para mais informações", "primary")
+end, 'admin')
+
 -- Adicionar ao fxmanifest.lua:
 -- server_scripts {
 --     'server/main.lua',
